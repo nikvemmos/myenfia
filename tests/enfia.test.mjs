@@ -71,3 +71,14 @@ test('co-ownership halves the tax and applies 0.9 value coefficient', () => {
   assert.equal(half.mainTax, Math.round(full.mainTax * 50) / 100);
   assert.equal(half.value, Math.round(full.value * 0.9 * 0.5));
 });
+
+test('small-settlement main residence: 50% off, then insurance', () => {
+  const base = { zonePrice: 600, area: 100, yearBuilt: 1990, floor: 0, frontages: 1 };
+  const plain = calculateEnfia(base);
+  const v = calculateEnfia({ ...base, smallVillage: true, insured: true });
+  assert.equal(v.villageRate, 0.5);
+  assert.equal(v.total, Math.round(plain.total * 0.5 * 0.8 * 100) / 100);
+  // not for residences valued over €400k
+  const big = calculateEnfia({ zonePrice: 5500, area: 150, yearBuilt: 2020, floor: 5, frontages: 2, smallVillage: true });
+  assert.equal(big.villageRate, 0);
+});

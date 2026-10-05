@@ -1,10 +1,9 @@
 import { calculateEnfia, TAX_YEAR } from './enfia-calc.js';
-import { loadZones, lookup } from './zones.js';
+import { loadIndex, lookupAt } from './zones.js';
 import { makeT } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
-const ATTICA_VIEWBOX = '23.25,38.35,24.15,37.60'; // lon/lat box for address search
-const state = { lang: 'el', zones: null, point: null, hit: null, lineId: null, road: null };
+const state = { lang: 'el', zones: null, point: null, hit: null, lineId: null, road: null, fallbackIdx: null, seq: 0, loading: false };
 // Uppercase without accents, for matching street names against zone descriptions.
 const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 let t = makeT('el');
@@ -73,9 +72,23 @@ function selectPoint(lon, lat, fly = false, road = null) {
   updateZone();
 }
 
-function updateZone() {
+async function updateZone() {
   if (!state.zones || !state.point) { renderZone(); return; }
-  state.hit = lookup(state.zones, ...state.point);
+  const seq = ++state.seq; // ignore results of superseded clicks
+  state.loading = true;
+  renderZone();
+  let hit;
+  try {
+    hit = await lookupAt(state.zones, ...state.point);
+  } catch {
+    hit = { area: null, snapped: 0, lines: [], fallback: [], region: null, unit: null, failed: true };
+  }
+  if (seq !== state.seq) return;
+  state.loading = false;
+  state.hit = hit;
+  // Outside all zones: preselect the nearest municipal unit's minimum price, unless the point is
+  // probably just a park or hill inside a town (a zone within 250 m).
+  state.fallbackIdx = hit.fallback.length && hit.fallback[0].dist > 250 ? 0 : null;
   // If the searched street is one of the nearby street-line zones, preselect it.
   const road = norm(state.road).replace(/^(ΟΔΟΣ|ΛΕΩΦΟΡΟΣ|ΛΕΩΦ\.)\s+/, '');
   state.lineId = road ? state.hit.lines.find((l) => norm(l.desc).includes(road))?.id ?? null : null;
@@ -97,7 +110,7 @@ async function search() {
   const msg = $('searchMsg');
   msg.textContent = t('search.searching');
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=gr&bounded=1&viewbox=${ATTICA_VIEWBOX}&accept-language=${state.lang}&q=${encodeURIComponent(q)}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=gr&accept-language=${state.lang}&q=${encodeURIComponent(q)}`;
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     const [hit] = await res.json();
     if (!hit) { msg.textContent = t('search.none'); return; }
@@ -113,7 +126,12 @@ function currentZonePrice() {
   const manual = parseFloat($('manualPrice').value);
   if (manual > 0) return { price: manual, source: 'manual' };
   const hit = state.hit;
-  if (!hit?.area?.price) return null;
+  if (!hit) return null;
+  if (!hit.area) {
+    const f = hit.fallback[state.fallbackIdx];
+    return f ? { price: f.price, source: 'fallback' } : null;
+  }
+  if (!hit.area.price) return null;
   const line = hit.lines.find((l) => l.id === state.lineId);
   return line ? { price: line.price, source: 'line' } : { price: hit.area.price, source: 'area' };
 }
@@ -121,11 +139,26 @@ function currentZonePrice() {
 function renderZone() {
   const box = $('zoneBox');
   if (!state.zones) { box.innerHTML = `<p class="muted">${t('zone.loading')}</p>`; return; }
-  if (!state.point) { box.innerHTML = `<p class="muted">${t('zone.empty')}</p>`; return; }
-  const { area, lines } = state.hit;
+  if (!state.point) { box.innerHTML = `<p class="muted">${t('zone.empty')}</p>`; updateVillage(); return; }
+  if (state.loading || !state.hit) { box.innerHTML = `<p class="muted">${t('zone.loading')}</p>`; return; }
+  updateVillage();
+  const { area, lines, fallback } = state.hit;
   if (!area) {
-    box.innerHTML = `<p class="warn">${t('zone.outside')}</p>`;
-    $('manualBox').open = true;
+    let html = `<p class="warn">${t(fallback.length ? 'zone.outsideFallback' : 'zone.outside')}</p>`;
+    if (fallback.length) {
+      html += `<div class="choices">`;
+      fallback.forEach((f, i) => {
+        html += `<label class="choice"><input type="radio" name="fb" value="${i}" ${state.fallbackIdx === i ? 'checked' : ''}>
+          <span>${esc(f.de && f.de !== f.dimos ? `${f.de} · ${f.dimos}` : f.dimos)} <small class="muted">${num(f.dist / 1000, 1)} km</small></span><b>${eur(f.price, 0)}</b></label>`;
+      });
+      html += `<label class="choice"><input type="radio" name="fb" value="" ${state.fallbackIdx == null ? 'checked' : ''}><span>${t('zone.fallbackNone')}</span><b></b></label></div>`;
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('input[name=fb]').forEach((r) => r.addEventListener('change', () => {
+      state.fallbackIdx = r.value === '' ? null : +r.value;
+      render();
+    }));
+    if (!fallback.length || state.fallbackIdx == null) $('manualBox').open = true;
     return;
   }
   const z = currentZonePrice();
@@ -153,6 +186,20 @@ function renderZone() {
   }));
 }
 
+// Small-settlement discount: not in Attica, except the Islands regional unit.
+function villageEligible() {
+  const h = state.hit;
+  if (!state.point || !h) return true; // manual price, unknown location
+  if (!h.region) return true;
+  return !norm(h.region).includes('ΑΤΤΙΚ') || norm(h.unit).includes('ΝΗΣΩΝ');
+}
+
+function updateVillage() {
+  const ok = villageEligible();
+  $('villageRow').hidden = !ok;
+  if (!ok) $('village').checked = false;
+}
+
 // ---------- result ----------
 function readInputs() {
   const z = currentZonePrice();
@@ -170,6 +217,7 @@ function readInputs() {
     share: Math.min(100, Math.max(0.01, parseFloat($('share').value) || 100)),
     otherValue: parseFloat($('other').value) || 0,
     insured: $('insured').checked,
+    smallVillage: $('village').checked && villageEligible(),
   };
 }
 
@@ -202,6 +250,7 @@ function render() {
   if (r.surcharge) rows += row(t('b.surcharge', { p: pct(r.surchargeRate) }), '+' + eur(r.surcharge));
   if (r.reduction) rows += row(t('b.reduction', { p: pct(r.reductionRate) }), '−' + eur(r.reduction), 'good');
   else if (!r.surcharge) rows += row(t('b.noReduction'), eur(0));
+  if (r.village) rows += row(t('b.village', { p: pct(r.villageRate) }), '−' + eur(r.village), 'good');
   if (r.insurance) rows += row(t('b.insurance', { p: pct(r.insuranceRate) }), '−' + eur(r.insurance), 'good');
   rows += row(t('b.total'), eur(r.total), 'total');
 
@@ -238,10 +287,10 @@ fillFloors();
 bind();
 applyLang(initialLang());
 initMap();
-loadZones('data/zones-attica.json')
+loadIndex('data/zones')
   .then((z) => {
     state.zones = z;
     $('footerData').textContent = t('footer.data', { d: fmtDate(z.meta.fetched) });
     updateZone();
   })
-  .catch(() => { $('zoneBox').innerHTML = `<p class="warn">${t('zone.outside')}</p>`; $('manualBox').open = true; });
+  .catch(() => { $('zoneBox').innerHTML = `<p class="warn">${t('zone.loadError')}</p>`; $('manualBox').open = true; });

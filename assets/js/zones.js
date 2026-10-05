@@ -1,35 +1,52 @@
 // Zone lookup: which AADE zone (τιμή ζώνης) contains a point, and which street-line zones are near it.
-// Data format: see tools/fetch_zones.py. Coordinates are [lon, lat].
+// Data is split per regional unit (see tools/fetch_zones.py); units are fetched on demand. Coordinates are [lon, lat].
 
 const LINE_RADIUS_M = 35; // street-line zones apply to buildings fronting the street
 const SNAP_RADIUS_M = 60; // a click on a street or tiny gap snaps to the nearest area zone
+const FALLBACK_RADIUS_M = 15000; // outside all zones: offer municipal units within this distance
+const PAD = 0.0008; // ~80 m, bbox padding
 
-export async function loadZones(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`zones ${res.status}`);
-  const raw = await res.json();
+export async function loadIndex(base) {
+  const res = await fetch(`${base}/index.json`);
+  if (!res.ok) throw new Error(`zones index ${res.status}`);
+  const idx = await res.json();
+  return { ...idx, base, cache: new Map() };
+}
+
+function loadUnit(zones, unit) {
+  if (!zones.cache.has(unit.id)) {
+    zones.cache.set(unit.id, fetch(`${zones.base}/${unit.id}.json`).then((r) => {
+      if (!r.ok) throw new Error(`zones ${unit.id} ${r.status}`);
+      return r.json();
+    }).then((raw) => parseUnit(raw, unit)).catch((e) => { zones.cache.delete(unit.id); throw e; }));
+  }
+  return zones.cache.get(unit.id);
+}
+
+function parseUnit(raw, unit) {
   const areas = raw.areas.map(([id, name, price, dimos, de, rings]) => ({
-    id, name, price, dimos, de, rings, bbox: bboxOf(rings.flat()),
+    id, name, price, dimos, de, unit: unit.name, region: unit.region, rings, bbox: bboxOf(rings.flat()),
   }));
-  // Zones without a published price yet: by law they take the lowest zone price of their
-  // municipal unit (δημοτική ενότητα), else of their municipality.
-  const minBy = (key) => {
-    const m = new Map();
-    for (const a of areas) if (a.price) m.set(a[key], Math.min(m.get(a[key]) ?? Infinity, a.price));
-    return m;
-  };
-  const minDe = minBy('de');
-  const minDimos = minBy('dimos');
+  // Minimum zone price per municipal unit (δημοτική ενότητα), else per municipality. By law it applies to
+  // zones without a published price and to buildings outside any zone.
+  const minDe = new Map();
+  const minDimos = new Map();
+  for (const a of areas) {
+    if (!a.price) continue;
+    minDe.set(a.de ?? a.dimos, Math.min(minDe.get(a.de ?? a.dimos) ?? Infinity, a.price));
+    minDimos.set(a.dimos, Math.min(minDimos.get(a.dimos) ?? Infinity, a.price));
+  }
   for (const a of areas) {
     if (!a.price) {
-      a.price = minDe.get(a.de) ?? minDimos.get(a.dimos) ?? null;
+      a.price = minDe.get(a.de ?? a.dimos) ?? minDimos.get(a.dimos) ?? null;
       a.estimated = true;
     }
+    a.deMin = minDe.get(a.de ?? a.dimos) ?? minDimos.get(a.dimos) ?? a.price;
   }
   const lines = raw.lines.map(([id, name, price, dimos, de, desc, paths]) => ({
     id, name, price, dimos, de, desc, paths, bbox: bboxOf(paths.flat()),
   }));
-  return { meta: raw.meta, areas, lines };
+  return { areas, lines };
 }
 
 function bboxOf(pts) {
@@ -42,6 +59,8 @@ function bboxOf(pts) {
   }
   return [x0, y0, x1, y1];
 }
+
+const inBox = (lon, lat, b, pad = 0) => lon >= b[0] - pad && lon <= b[2] + pad && lat >= b[1] - pad && lat <= b[3] + pad;
 
 // Even-odd rule over all rings, so holes are handled.
 function inRings(x, y, rings) {
@@ -62,7 +81,7 @@ function ringArea(rings) {
   return Math.abs(a / 2);
 }
 
-// Distance in meters from a point to a polyline, on a local equirectangular projection.
+// Distance in meters from a point to a set of polylines, on a local equirectangular projection.
 function distToPaths(lon, lat, paths) {
   const kx = 111320 * Math.cos((lat * Math.PI) / 180);
   const ky = 110540;
@@ -79,28 +98,58 @@ function distToPaths(lon, lat, paths) {
   return best;
 }
 
-export function lookup(zones, lon, lat) {
-  const hits = zones.areas.filter(
-    (a) => lon >= a.bbox[0] && lon <= a.bbox[2] && lat >= a.bbox[1] && lat <= a.bbox[3] && inRings(lon, lat, a.rings),
-  );
-  // If zones overlap, the smallest (most specific) wins.
-  hits.sort((a, b) => ringArea(a.rings) - ringArea(b.rings));
-  const pad = 0.0008;
+function boxDist(lon, lat, b) {
+  const dx = Math.max(b[0] - lon, 0, lon - b[2]);
+  const dy = Math.max(b[1] - lat, 0, lat - b[3]);
+  return Math.hypot(dx * Math.cos((lat * Math.PI) / 180), dy);
+}
+
+/**
+ * @returns {Promise<{area, snapped, lines, fallback, region}>}
+ *   area: containing (or snapped-to) zone or null; lines: nearby street-line zones;
+ *   fallback: when outside all zones, nearby municipal units [{dimos, de, price, dist}] sorted by distance.
+ */
+export async function lookupAt(zones, lon, lat, unitPad = 0.01) {
+  let units = zones.units.filter((u) => inBox(lon, lat, u.bbox, unitPad));
+  if (!units.length) units = [...zones.units].sort((a, b) => boxDist(lon, lat, a.bbox) - boxDist(lon, lat, b.bbox)).slice(0, 2);
+  const parts = await Promise.all(units.map((u) => loadUnit(zones, u)));
+  const areas = parts.flatMap((p) => p.areas);
+  const allLines = parts.flatMap((p) => p.lines);
+
+  const hits = areas.filter((a) => inBox(lon, lat, a.bbox) && inRings(lon, lat, a.rings));
+  hits.sort((a, b) => ringArea(a.rings) - ringArea(b.rings)); // overlapping zones: most specific wins
   let area = hits[0] ?? null;
   let snapped = 0;
+  let fallback = [];
   if (!area) {
-    const near = zones.areas
-      .filter((a) => lon >= a.bbox[0] - pad && lon <= a.bbox[2] + pad && lat >= a.bbox[1] - pad && lat <= a.bbox[3] + pad)
+    const near = areas
+      .filter((a) => inBox(lon, lat, a.bbox, FALLBACK_RADIUS_M / 90000))
       .map((a) => ({ a, d: distToPaths(lon, lat, a.rings) }))
-      .filter((x) => x.d <= SNAP_RADIUS_M)
-      .sort((x, y) => x.d - y.d)[0];
-    if (near) { area = near.a; snapped = Math.round(near.d); }
+      .sort((x, y) => x.d - y.d);
+    if (near[0] && near[0].d <= SNAP_RADIUS_M) {
+      area = near[0].a;
+      snapped = Math.round(near[0].d);
+    } else if (unitPad < 0.15) {
+      // Outside all zones: widen to neighbouring regional units before listing fallback municipal units.
+      return lookupAt(zones, lon, lat, 0.15);
+    } else {
+      const seen = new Set();
+      for (const { a, d } of near) {
+        const key = `${a.dimos}|${a.de}`;
+        if (d > FALLBACK_RADIUS_M || seen.has(key) || !a.deMin) continue;
+        seen.add(key);
+        fallback.push({ dimos: a.dimos, de: a.de, price: a.deMin, dist: Math.round(d), region: a.region, unit: a.unit });
+        if (fallback.length === 6) break;
+      }
+    }
   }
-  const lines = zones.lines
-    .filter((l) => lon >= l.bbox[0] - pad && lon <= l.bbox[2] + pad && lat >= l.bbox[1] - pad && lat <= l.bbox[3] + pad)
+  const lines = allLines
+    .filter((l) => inBox(lon, lat, l.bbox, PAD))
     .map((l) => ({ ...l, dist: distToPaths(lon, lat, l.paths) }))
     .filter((l) => l.dist <= LINE_RADIUS_M)
     .sort((a, b) => a.dist - b.dist)
     .filter((l, i, arr) => arr.findIndex((o) => o.id === l.id) === i);
-  return { area, snapped, lines };
+  const region = area?.region ?? fallback[0]?.region ?? units[0]?.region ?? null;
+  const unit = area?.unit ?? fallback[0]?.unit ?? units[0]?.name ?? null;
+  return { area, snapped, lines, fallback, region, unit };
 }

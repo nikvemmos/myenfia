@@ -7,6 +7,8 @@
 //  - Tax per property right (Ενότητα Γ), surcharge (Ενότητα Ε), value-based reduction (άρθρο 7 παρ. 2Α).
 //  - Property value for those thresholds: ν.3842/2010 άρθρο 32 (apartment coefficients, par. 3.1).
 //  - Insurance discount 20% / 10% for residences insured against earthquake, fire, flood (ENFIA 2026).
+//  - Small settlements (ν.5246/2025): 50% off in 2026 for a main residence in a settlement of up to 1,500
+//    inhabitants, residence value up to €400k; not for Attica except the Islands regional unit (caller checks).
 
 export const TAX_YEAR = 2026;
 
@@ -126,6 +128,7 @@ const round2 = (x) => Math.round(x * 100) / 100;
  * @param {number} [p.share=100]    ownership % (full ownership)
  * @param {number} [p.otherValue=0] value of the owner's other properties (for thresholds)
  * @param {boolean} [p.insured=false] insured all year against earthquake, fire and flood
+ * @param {boolean} [p.smallVillage=false] main residence in an eligible settlement of ≤ 1,500 inhabitants
  * @param {number} [p.taxYear=TAX_YEAR]
  */
 export function calculateEnfia(p) {
@@ -163,10 +166,14 @@ export function calculateEnfia(p) {
   const reduction = principal * valueReductionRate(totalValue);
   const afterValueRules = principal + surcharge - reduction;
 
-  // 5. Insurance discount.
+  // 5. Small-settlement main residence discount.
+  const villageRate = p.smallVillage && value <= 400000 ? 0.5 : 0;
+  const village = afterValueRules * villageRate;
+
+  // 6. Insurance discount.
   const insuranceRate = p.insured ? (value <= 500000 ? 0.2 : 0.1) : 0;
-  const insurance = afterValueRules * insuranceRate;
-  const total = afterValueRules - insurance;
+  const insurance = (afterValueRules - village) * insuranceRate;
+  const total = afterValueRules - village - insurance;
 
   return {
     taxYear,
@@ -184,6 +191,8 @@ export function calculateEnfia(p) {
     surcharge: round2(surcharge),
     reductionRate: valueReductionRate(totalValue),
     reduction: round2(reduction),
+    villageRate,
+    village: round2(village),
     insuranceRate,
     insurance: round2(insurance),
     total: round2(total),
