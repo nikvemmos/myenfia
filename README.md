@@ -1,55 +1,55 @@
 # myenfia
 
-Free ENFIA 2026 calculator for a privately owned residential apartment anywhere in Greece.
-Pin the property on the map, enter area, permit year, floor and frontage, and get the tax with a full breakdown.
-Greek first, English toggle. Static site, no backend.
+A free ENFIA calculator for apartments in Greece: pin the property on a map, enter a few details, and get an estimate of the yearly property tax with every step of the calculation shown.
 
 **Live:** https://nikvemmos.github.io/myenfia/
 
-## How it works
+## Why I built this
 
-- **Zone price (τιμή ζώνης):** looked up from the point on the map, using AADE's official zones for all of Greece
-  (13k area zones + 5k street-line zones), split into one file per regional unit under `data/zones/` and loaded on
-  demand via `data/zones/index.json`. Outside any zone, the lowest zone price of the municipal unit applies (by law),
-  so the page offers the nearest municipal units to choose from.
-- **Main tax:** m² × base tax (by zone price band) × age × floor × frontage coefficients; auxiliary spaces × 0.1.
-  Law 4223/2013 art. 4 (now Property Tax Code, Law 5219/2025), base-tax table as of Law 4916/2022.
-- **Total property value** (Law 3842/2010 art. 32) drives the 10–30% reduction (≤ €400k), the 5–20% surcharge
-  (> €500k) and the 0.2–1% tax per property right above €400k.
-- **Insurance discount:** 20% (10% if value > €500k) for homes insured against earthquake, fire and flood.
-- **Small settlements:** 50% off in 2026 for a main residence in a settlement of ≤ 1,500 inhabitants, value ≤ €400k,
-  outside Attica except the Islands regional unit (Law 5246/2025). Settlement population is not in the data, so the
-  user ticks it; the option is hidden where it can't apply.
+ENFIA is the one tax every property owner in Greece pays every year, yet very few people can explain their own bill. The official notice gives you a number, not the reasoning behind it.
 
-Out of scope (v1): income-based discounts, detached houses, commercial property, land, usufruct split.
-Target accuracy ±10%; checked to the cent against the Ministry of Finance's official ENFIA 2022 examples
-(`tests/ministry-2022-examples.json`).
+I wanted a quick, credible first estimate for two kinds of people: buyers screening a property, and agents preparing a listing. When you are comparing apartments, the annual holding cost matters just as much as the asking price, and ENFIA is part of that cost.
 
-## Project layout
+The existing calculators I tried all ask for the *zone price* (τιμή ζώνης), the official value per m² behind the tax. Almost nobody knows that number for their own address. So the starting point for this project was simple: find the zone price for the user from the map, and keep everything else to inputs an owner actually knows.
 
-```
-index.html               page
-assets/js/enfia-calc.js  tax rules (pure functions)
-assets/js/zones.js       point-in-zone lookup
-assets/js/app.js         UI: map, search, form, results
-assets/js/i18n.js        Greek / English strings
-data/zones/               AADE zones per regional unit + index (generated)
-tools/fetch_zones.py      regenerates the zone data from AADE's public map service (~15 min)
-tests/                   node tests
-```
+## How I approached it
 
-## Develop
+**One common case, done properly.** I deliberately limited the scope to an apartment owned by an individual. That covers most owners, and it keeps the tool honest: no business property, land or detached houses.
 
-```
-python -m http.server 8765        # then open http://localhost:8765
-node --test tests/*.test.mjs      # run tests
-python tools/fetch_zones.py       # refresh zone prices (e.g. after an AADE revision)
-```
+**Accuracy target of ±10%.** A 100% exact figure is impossible from the information an owner has (income-based discounts, for example, depend on the tax return). So I aimed for a figure close enough to make decisions with, and wrote down every simplification.
 
-Yearly update: check the ENFIA rules for the new tax year, adjust `assets/js/enfia-calc.js` (`TAX_YEAR` and tables),
-re-run the zone import.
+**The biggest source of error is the input, not the formula.** Once the zone price is right, the rest is deterministic. The site loads AADE's official zones (about 13,000 area zones and 5,000 street zones across Greece) and looks up the price for the point you click.
 
-## Credits
+**Rules from the law itself, then checked.** The rules come from the law, not from blog summaries (several of those turned out to be outdated):
 
-Zone data © AADE (valuemaps). Map tiles and address search © OpenStreetMap contributors (Nominatim).
-Indicative calculation, not tax advice.
+- Main tax: Law 4223/2013, article 4, now part of the Property Tax Code (Law 5219/2025), with the rate table introduced by Law 4916/2022.
+- Taxable value: Law 3842/2010, article 32.
+- 2026 discounts: Law 5246/2025.
+
+I then checked the calculation against the Ministry of Finance's official example table. Every comparable case matched to the cent.
+
+## How the tax works, in short
+
+1. **Main tax.** Area (m²) × a base rate per m² set by the zone price (€2.00 to €16.20). That is then multiplied by factors for the building's age, the floor and the street frontage. Storage rooms and parking spaces are taxed at 10%.
+2. **Total property value.** The owner's total property value then adjusts the tax:
+   - up to €400k, the tax is reduced by 10% to 30%;
+   - above €500k, it is increased by 5% to 20%;
+   - an apartment worth more than €400k pays an extra 0.2% to 1% on the amount above €400k.
+3. **2026 discounts.** 20% off for a home insured against earthquake, fire and flood. 50% off for a main residence in a village of up to 1,500 inhabitants (outside Attica).
+
+## What I found interesting
+
+- **Threshold "cliffs".** The value-based reduction works in brackets, not on a sliding scale. An owner whose total property is worth €100,000 gets 30% off; at €100,001 it drops to 25% off the *whole* tax. The same happens at every threshold. As a finance student I find this a nice example of how bracketed relief creates sharp marginal effects.
+- **The tax follows official values, not the market.** The tax is driven by the zone price, which is revised only every few years, not by what the apartment would actually sell for. Two apartments with the same market value can pay very different ENFIA, depending on how the state values their area.
+- **Public data has gaps.** The latest official map layer quietly leaves out a few zones. One of them is the whole of Ilisia in central Athens. I found this by testing points across the city, and fixed it by filling the gaps from the previous layer.
+
+## Limitations
+
+- Income-based discounts, large-family and disability exemptions are not included.
+- For points outside any zone, the price follows the legal rule (the lowest zone price of the municipal unit), but the taxable value is approximated.
+- The tax rules are for 2026 and need updating each year.
+- It is an estimate for information only, not tax advice. The official amount is the one on the AADE notice.
+
+## Built with
+
+Plain HTML, CSS and JavaScript, hosted on GitHub Pages. Map tiles and address search are from OpenStreetMap. Zone prices are from AADE's public valuation map.
