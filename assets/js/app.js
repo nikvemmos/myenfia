@@ -135,6 +135,7 @@ function renderZone() {
       <tr><td>${place}</td><td>${esc(area.name)}</td>
       <td class="price">${eur(z?.price ?? area.price, 0)}<small> /${t('unit.sqm')}</small></td></tr>
     </table>`;
+  if (state.hit.snapped) html += `<p class="note">${t('zone.snapped', { m: state.hit.snapped })}</p>`;
   if (area.estimated) html += `<p class="note">${t('zone.estimated')}</p>`;
   if (lines.length) {
     html += `<p class="note strong">${t('zone.lines')}</p><div class="choices">`;

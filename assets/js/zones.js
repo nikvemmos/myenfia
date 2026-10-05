@@ -2,6 +2,7 @@
 // Data format: see tools/fetch_zones.py. Coordinates are [lon, lat].
 
 const LINE_RADIUS_M = 35; // street-line zones apply to buildings fronting the street
+const SNAP_RADIUS_M = 60; // a click on a street or tiny gap snaps to the nearest area zone
 
 export async function loadZones(url) {
   const res = await fetch(url);
@@ -84,12 +85,22 @@ export function lookup(zones, lon, lat) {
   );
   // If zones overlap, the smallest (most specific) wins.
   hits.sort((a, b) => ringArea(a.rings) - ringArea(b.rings));
-  const pad = 0.0005;
+  const pad = 0.0008;
+  let area = hits[0] ?? null;
+  let snapped = 0;
+  if (!area) {
+    const near = zones.areas
+      .filter((a) => lon >= a.bbox[0] - pad && lon <= a.bbox[2] + pad && lat >= a.bbox[1] - pad && lat <= a.bbox[3] + pad)
+      .map((a) => ({ a, d: distToPaths(lon, lat, a.rings) }))
+      .filter((x) => x.d <= SNAP_RADIUS_M)
+      .sort((x, y) => x.d - y.d)[0];
+    if (near) { area = near.a; snapped = Math.round(near.d); }
+  }
   const lines = zones.lines
     .filter((l) => lon >= l.bbox[0] - pad && lon <= l.bbox[2] + pad && lat >= l.bbox[1] - pad && lat <= l.bbox[3] + pad)
     .map((l) => ({ ...l, dist: distToPaths(lon, lat, l.paths) }))
     .filter((l) => l.dist <= LINE_RADIUS_M)
     .sort((a, b) => a.dist - b.dist)
     .filter((l, i, arr) => arr.findIndex((o) => o.id === l.id) === i);
-  return { area: hits[0] ?? null, lines };
+  return { area, snapped, lines };
 }
