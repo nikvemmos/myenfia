@@ -66,7 +66,7 @@ function initMap() {
 function selectPoint(lon, lat, fly = false, road = null) {
   state.point = [lon, lat];
   state.road = road;
-  if (!marker) marker = L.marker([lat, lon], { draggable: true }).addTo(map);
+  if (!marker) marker = L.marker([lat, lon], { draggable: true, icon: L.divIcon({ className: '', html: '<div class="pin"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(map);
   marker.setLatLng([lat, lon]);
   marker.off('dragend').on('dragend', () => { const p = marker.getLatLng(); selectPoint(p.lng, p.lat); });
   if (fly) map.setView([lat, lon], 17);
@@ -129,11 +129,12 @@ function renderZone() {
     return;
   }
   const z = currentZonePrice();
-  let html = `<div class="zone-head">
-      <div><span class="k">${esc(area.dimos)}${area.de && area.de !== area.dimos ? ' · ' + esc(area.de) : ''}</span>
-      <span class="v">${t('zone.label')} ${esc(area.name)}</span></div>
-      <div class="zone-price"><span class="k">${t('zone.price')}</span><span class="v">${eur(z?.price ?? area.price, 0)}<small>/${t('unit.sqm')}</small></span></div>
-    </div>`;
+  const place = esc(area.dimos) + (area.de && area.de !== area.dimos ? ' · ' + esc(area.de) : '');
+  let html = `<table class="zone-table">
+      <tr><th>${t('zone.place')}</th><th>${t('zone.label')}</th><th>${t('zone.price')}</th></tr>
+      <tr><td>${place}</td><td>${esc(area.name)}</td>
+      <td class="price">${eur(z?.price ?? area.price, 0)}<small> /${t('unit.sqm')}</small></td></tr>
+    </table>`;
   if (area.estimated) html += `<p class="note">${t('zone.estimated')}</p>`;
   if (lines.length) {
     html += `<p class="note strong">${t('zone.lines')}</p><div class="choices">`;
@@ -172,7 +173,14 @@ function readInputs() {
 }
 
 function row(label, value, cls = '') {
-  return `<div class="row ${cls}"><span>${label}</span><span>${value}</span></div>`;
+  return `<div class="line ${cls}"><span class="l">${label}</span><span class="dots"></span><span class="v">${value}</span></div>`;
+}
+
+// Large serif total with smaller cents, e.g. 254,77 € -> 254<sup>,77</sup> €
+function amountHtml(x) {
+  const parts = new Intl.NumberFormat(locale(), { style: 'currency', currency: 'EUR' }).formatToParts(x);
+  return parts.map((p) => (p.type === 'decimal' || p.type === 'fraction' ? `<span class="cents">${p.value}</span>` : esc(p.value)))
+    .join('').replace('</span><span class="cents">', '');
 }
 
 function render() {
@@ -180,7 +188,7 @@ function render() {
   const input = readInputs();
   const bar = $('mobilebar');
   if (!input) {
-    body.innerHTML = `<p class="muted big-placeholder">${t('res.placeholder')}</p>`;
+    body.innerHTML = `<p class="placeholder">${t('res.placeholder')}</p>`;
     bar.hidden = true;
     return;
   }
@@ -188,7 +196,7 @@ function render() {
   const transitional = (input.zonePrice > 750 && input.zonePrice <= 800) || (input.zonePrice > 1500 && input.zonePrice <= 1550);
   let rows = row(`${t('b.main')} <small>${num(input.area, 0)} ${t('unit.sqm')} × ${eur(r.baseRate)} × ${num(r.coefs.age)} × ${num(r.coefs.floor)} × ${num(r.coefs.frontage)}</small>`, eur(r.mainApartmentFull));
   if (input.auxArea) rows += row(`${t('b.aux')} <small>${num(input.auxArea, 0)} ${t('unit.sqm')} × ${eur(r.baseRate)} × ${num(r.coefs.age)} × ${num(0.1)}</small>`, eur(r.mainAuxFull));
-  if (input.share < 100) rows += row(t('b.share', { p: pct(input.share / 100) }), eur(r.mainTax), 'sub');
+  if (input.share < 100) rows += row(t('b.share', { p: pct(input.share / 100) }), eur(r.mainTax), 'indent');
   if (r.rightTax) rows += row(t('b.right'), '+' + eur(r.rightTax));
   if (r.surcharge) rows += row(t('b.surcharge', { p: pct(r.surchargeRate) }), '+' + eur(r.surcharge));
   if (r.reduction) rows += row(t('b.reduction', { p: pct(r.reductionRate) }), '−' + eur(r.reduction), 'good');
@@ -197,16 +205,17 @@ function render() {
   rows += row(t('b.total'), eur(r.total), 'total');
 
   body.innerHTML = `
-    <div class="amount">${eur(r.total)}</div>
-    <p class="permonth">${t('res.perMonth', { x: eur(r.monthly) })} <span class="badge">${t('res.accuracy')}</span></p>
+    <div class="amount">${amountHtml(r.total)}</div>
+    <p class="permonth">${t('res.perMonth', { x: eur(r.monthly) })}</p>
+    <p class="accuracy">${t('res.accuracy')}</p>
     ${transitional ? `<p class="note">${t('zone.transitional')}</p>` : ''}
     <h3 class="sect">${t('res.breakdown')}</h3>
-    <div class="rows">${rows}</div>
-    <dl class="kv">
-      <div><dt>${t('k.zone')}</dt><dd>${r.taxZone} · ${eur(r.baseRate)}/${t('unit.sqm')}</dd></div>
-      <div><dt>${t('k.value')}</dt><dd>${eur(r.value, 0)}</dd></div>
-      <div><dt>${t('k.totalValue')}</dt><dd>${eur(r.totalValue, 0)}</dd></div>
-      <div><dt>${t('k.coefs')}</dt><dd>${t('coef.age')} ${num(r.coefs.age)} · ${t('coef.floor')} ${num(r.coefs.floor)} · ${t('coef.front')} ${num(r.coefs.frontage)}</dd></div>
+    ${rows}
+    <dl class="params">
+      <dt>${t('k.zone')}</dt><dd>${r.taxZone} · ${eur(r.baseRate)}/${t('unit.sqm')}</dd>
+      <dt>${t('k.coefs')}</dt><dd>${num(r.coefs.age)} · ${num(r.coefs.floor)} · ${num(r.coefs.frontage)}</dd>
+      <dt>${t('k.value')}</dt><dd>${eur(r.value, 0)}</dd>
+      <dt>${t('k.totalValue')}</dt><dd>${eur(r.totalValue, 0)}</dd>
     </dl>`;
   $('mobileTotal').textContent = eur(r.total);
   bar.hidden = false;
