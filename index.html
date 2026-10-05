@@ -47,8 +47,9 @@
           <div class="part-body">
             <p class="hint" data-i18n="step1.hint"></p>
             <div class="search">
-              <input id="q" type="search" autocomplete="street-address" data-i18n-placeholder="search.placeholder">
-              <button type="button" id="searchBtn" class="btn" data-i18n="search.btn">Αναζήτηση</button>
+              <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+              <input id="q" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestions" autocomplete="off" spellcheck="false" data-i18n-placeholder="search.placeholder">
+              <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
             </div>
             <p class="msg" id="searchMsg" role="status"></p>
             <div id="map" class="map" role="application" aria-label="Map"></div>

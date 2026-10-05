@@ -1,6 +1,7 @@
 import { calculateEnfia, TAX_YEAR } from './enfia-calc.js';
 import { loadIndex, lookupAt } from './zones.js';
 import { makeT } from './i18n.js';
+import { initSearch } from './search.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { lang: 'el', zones: null, point: null, hit: null, lineId: null, road: null, fallbackIdx: null, seq: 0, loading: false };
@@ -90,8 +91,10 @@ async function updateZone() {
   // probably just a park or hill inside a town (a zone within 250 m).
   state.fallbackIdx = hit.fallback.length && hit.fallback[0].dist > 250 ? 0 : null;
   // If the searched street is one of the nearby street-line zones, preselect it.
-  const road = norm(state.road).replace(/^(ΟΔΟΣ|ΛΕΩΦΟΡΟΣ|ΛΕΩΦ\.)\s+/, '');
-  state.lineId = road ? state.hit.lines.find((l) => norm(l.desc).includes(road))?.id ?? null : null;
+  // Match on the street name's longest word, so "Λεωφόρος Βασιλίσσης Σοφίας" or "Τσιμισκή Ιωάννη" still match.
+  const word = norm(state.road).split(/[\s.,-]+/).filter((w) => !['ΟΔΟΣ', 'ΛΕΩΦΟΡΟΣ', 'ΛΕΩΦ'].includes(w))
+    .sort((a, b) => b.length - a.length)[0];
+  state.lineId = word && word.length >= 4 ? state.hit.lines.find((l) => norm(l.desc).includes(word))?.id ?? null : null;
   if (zoneLayer) zoneLayer.remove();
   if (state.hit.area) {
     zoneLayer = L.layerGroup([
@@ -101,24 +104,6 @@ async function updateZone() {
   }
   renderZone();
   render();
-}
-
-// ---------- address search (OpenStreetMap Nominatim; on submit only, per its usage policy) ----------
-async function search() {
-  const q = $('q').value.trim();
-  if (!q) return;
-  const msg = $('searchMsg');
-  msg.textContent = t('search.searching');
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=gr&accept-language=${state.lang}&q=${encodeURIComponent(q)}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    const [hit] = await res.json();
-    if (!hit) { msg.textContent = t('search.none'); return; }
-    msg.textContent = hit.display_name;
-    selectPoint(+hit.lon, +hit.lat, true, hit.address?.road);
-  } catch {
-    msg.textContent = t('search.error');
-  }
 }
 
 // ---------- zone panel ----------
@@ -274,8 +259,12 @@ function render() {
 // ---------- boot ----------
 function bind() {
   document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => applyLang(b.dataset.lang)));
-  $('searchBtn').addEventListener('click', search);
-  $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+  initSearch({
+    input: $('q'), list: $('suggestions'), msg: $('searchMsg'), t: (k) => t(k),
+    getLang: () => state.lang,
+    getBias: () => { const c = map.getCenter(); return [c.lat.toFixed(3), c.lng.toFixed(3)]; },
+    onSelect: (it) => selectPoint(it.lon, it.lat, true, it.road),
+  });
   $('form').addEventListener('input', (e) => {
     if (e.target.id === 'manualPrice') renderZone();
     render();

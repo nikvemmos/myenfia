@@ -52,4 +52,4 @@ I then checked the calculation against the Ministry of Finance's official exampl
 
 ## Built with
 
-Plain HTML, CSS and JavaScript, hosted on GitHub Pages. Map tiles and address search are from OpenStreetMap. Zone prices are from AADE's public valuation map.
+Plain HTML, CSS and JavaScript, hosted on GitHub Pages. Map tiles are from OpenStreetMap, address search from Esri's World Geocoding Service. Zone prices are from AADE's public valuation map.
