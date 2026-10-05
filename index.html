@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>myenfia · Υπολογισμός ΕΝΦΙΑ 2026 για διαμέρισμα</title>
+  <meta name="description" content="Δωρεάν υπολογισμός ΕΝΦΙΑ 2026 για διαμέρισμα στην Αττική, με τις επίσημες τιμές ζώνης της ΑΑΔΕ στον χάρτη και πλήρη ανάλυση του φόρου.">
+  <meta property="og:title" content="myenfia · Υπολογισμός ΕΝΦΙΑ 2026">
+  <meta property="og:description" content="Εντοπίστε το ακίνητο στον χάρτη και δείτε τον ΕΝΦΙΑ με πλήρη ανάλυση.">
+  <meta name="theme-color" content="#0e1a2b">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="./" aria-label="myenfia">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M8 23V13l8-5 8 5v10h-5v-6h-6v6z"/></svg>
+        <span><span class="brand-light">my</span>enfia</span>
+      </a>
+      <nav class="topnav">
+        <a href="#how" data-i18n="nav.how">Μεθοδολογία</a>
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-lang="el" aria-pressed="true">ΕΛ</button>
+          <button type="button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <p class="eyebrow" data-i18n="hero.eyebrow">ΕΝΦΙΑ 2026 · Αττική</p>
+      <h1 data-i18n="hero.title">Πόσο ΕΝΦΙΑ πληρώνει ένα διαμέρισμα;</h1>
+      <p class="lede" data-i18n="hero.sub"></p>
+    </section>
+
+    <section class="calc wrap">
+      <form class="inputs" id="form" novalidate onsubmit="return false">
+        <fieldset class="card">
+          <legend><span class="step">1</span><span data-i18n="step1">Τοποθεσία</span></legend>
+          <p class="hint" data-i18n="step1.hint"></p>
+          <div class="search">
+            <input id="q" type="search" autocomplete="street-address" data-i18n-placeholder="search.placeholder">
+            <button type="button" id="searchBtn" class="btn" data-i18n="search.btn">Αναζήτηση</button>
+          </div>
+          <p class="msg" id="searchMsg" role="status"></p>
+          <div id="map" class="map" role="application" aria-label="Map"></div>
+          <div id="zoneBox" class="zone" aria-live="polite"></div>
+          <details class="manual" id="manualBox">
+            <summary data-i18n="zone.manual">Χειροκίνητη τιμή ζώνης</summary>
+            <label class="field">
+              <span class="hint" data-i18n="zone.manualHint"></span>
+              <span class="input-unit"><input id="manualPrice" type="number" inputmode="numeric" min="100" max="20000" step="50"><span>€/m²</span></span>
+            </label>
+          </details>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend><span class="step">2</span><span data-i18n="step2">Το διαμέρισμα</span></legend>
+          <div class="grid2">
+            <label class="field">
+              <span class="label" data-i18n="f.area">Εμβαδόν κύριων χώρων</span>
+              <span class="input-unit"><input id="area" type="number" inputmode="decimal" min="10" max="1000" step="1" placeholder="85"><span data-i18n="unit.sqm">τ.μ.</span></span>
+              <span class="hint" data-i18n="f.areaHint"></span>
+            </label>
+            <label class="field">
+              <span class="label" data-i18n="f.year">Έτος οικοδομικής άδειας</span>
+              <input id="year" type="number" inputmode="numeric" min="1850" max="2026" step="1" placeholder="1985">
+              <span class="hint" data-i18n="f.yearHint"></span>
+            </label>
+            <label class="field">
+              <span class="label" data-i18n="f.floor">Όροφος</span>
+              <select id="floor"></select>
+            </label>
+            <div class="field">
+              <span class="label" data-i18n="f.frontage">Προσόψεις σε δρόμο</span>
+              <div class="seg" id="frontage" role="radiogroup">
+                <label><input type="radio" name="front" value="0"><span data-i18n="front.0"></span></label>
+                <label><input type="radio" name="front" value="1" checked><span data-i18n="front.1"></span></label>
+                <label><input type="radio" name="front" value="2"><span data-i18n="front.2"></span></label>
+              </div>
+            </div>
+            <label class="field">
+              <span class="label" data-i18n="f.aux">Αποθήκη / θέση στάθμευσης</span>
+              <span class="input-unit"><input id="aux" type="number" inputmode="decimal" min="0" max="500" step="1" placeholder="0"><span data-i18n="unit.sqm">τ.μ.</span></span>
+              <span class="hint" data-i18n="f.auxHint"></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="card">
+          <legend><span class="step">3</span><span data-i18n="step3">Ιδιοκτησία & εκπτώσεις</span></legend>
+          <div class="grid2">
+            <label class="field">
+              <span class="label" data-i18n="f.share">Ποσοστό συνιδιοκτησίας</span>
+              <span class="input-unit"><input id="share" type="number" inputmode="decimal" min="1" max="100" step="0.01" value="100"><span>%</span></span>
+            </label>
+            <label class="field">
+              <span class="label" data-i18n="f.other">Αξία άλλων ακινήτων σας</span>
+              <span class="input-unit"><input id="other" type="number" inputmode="numeric" min="0" step="1000" placeholder="0"><span>€</span></span>
+              <span class="hint" data-i18n="f.otherHint"></span>
+            </label>
+          </div>
+          <label class="toggle">
+            <input id="insured" type="checkbox">
+            <span class="switch" aria-hidden="true"></span>
+            <span><span class="label" data-i18n="f.insured">Ασφαλισμένη κατοικία</span><span class="hint" data-i18n="f.insuredHint"></span></span>
+          </label>
+        </fieldset>
+      </form>
+
+      <aside class="result" id="result" aria-live="polite">
+        <div class="card result-card">
+          <p class="result-title" data-i18n="res.title">Εκτιμώμενος ΕΝΦΙΑ 2026</p>
+          <div id="resultBody"></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="how wrap" id="how">
+      <h2 data-i18n="how.title">Πώς υπολογίζεται</h2>
+      <div class="how-grid">
+        <div>
+          <p data-i18n-html="how.p1"></p>
+          <p data-i18n-html="how.p2"></p>
+          <p data-i18n="how.p3"></p>
+        </div>
+        <div class="limits">
+          <h3 data-i18n="how.limits">Τι δεν περιλαμβάνεται</h3>
+          <ul>
+            <li data-i18n="how.l1"></li>
+            <li data-i18n="how.l2"></li>
+            <li data-i18n="how.l3"></li>
+            <li data-i18n="how.l4"></li>
+          </ul>
+        </div>
+      </div>
+      <p class="disclaimer" data-i18n="disclaimer"></p>
+    </section>
+  </main>
+
+  <div class="mobilebar" id="mobilebar" hidden>
+    <a href="#result"><span data-i18n="res.title"></span><strong id="mobileTotal"></strong></a>
+  </div>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p id="footerData"></p>
+      <p>myenfia · <a href="https://github.com/nikvemmos/myenfia">GitHub</a></p>
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
